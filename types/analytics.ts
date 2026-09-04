@@ -322,7 +322,7 @@ export interface ToolTimelineEntry {
 // different field names entirely for the same concept. `target`/`finding`
 // are alternates seen in the wild for `title`/`observation`; the renderer
 // falls back across both rather than assuming the requested shape held.
-export interface ExecutionRecommendation {
+export interface ExecutionFinding {
   severity?: 'critical' | 'high' | 'medium' | 'low';
   title?: string;
   category?: string;
@@ -341,13 +341,55 @@ export interface ExecutionRecommendation {
   feedbackCategory?: string;
 }
 
+// Raised when an agent complied with its definition (no `ExecutionFinding`
+// finding) but its actual deliverable still fell short of what the task
+// needed — judged against evidence the agent itself had access to, not
+// against the definition's checklist. Compliance and outcome quality are
+// different questions; this covers the second one.
+export interface ExecutionOutcomeFinding {
+  agentId?: string;
+  title?: string;
+  whatWasExpected?: string;
+  whatWasProduced?: string;
+  gap?: string;
+  evidence?: string[];
+  confidence?: 'high' | 'medium' | 'low';
+  /** Ready-to-paste feedback text for `agentId`'s feedback log — set only when the finding traces to one specific agent. */
+  feedbackText?: string;
+  /** Closest match from `FeedbackCategory` (types/feedback.ts) — free-form model output, not guaranteed to be a valid value. */
+  feedbackCategory?: string;
+}
+
+// Raised for an agent that fully complied with its definition and produced
+// an adequate result — no `ExecutionFinding`, no
+// `ExecutionOutcomeFinding` gap — but the session transcript shows a
+// specific way the definition itself could be strengthened so future runs
+// do even better. Orthogonal to the other two: this fires on a definition
+// that worked but could ask for more.
+export interface ExecutionEnhancementOpportunity {
+  agentId?: string;
+  title?: string;
+  currentInstruction?: string;
+  observation?: string;
+  suggestedEnhancement?: string;
+  expectedBenefit?: string;
+  evidence?: string[];
+  confidence?: 'high' | 'medium' | 'low';
+  /** Ready-to-paste feedback text for `agentId`'s feedback log — set only when the opportunity traces to one specific agent. */
+  feedbackText?: string;
+  /** Closest match from `FeedbackCategory` (types/feedback.ts) — free-form model output, not guaranteed to be a valid value. */
+  feedbackCategory?: string;
+}
+
 export interface ExecutionAnalysisCycle {
   id: string;
   sessionId: string;
   cycleNumber: number;
   analysisPrompt: string;
   analysisResponse: string | null;
-  recommendations: ExecutionRecommendation[] | null;
+  executionFindings: ExecutionFinding[] | null;
+  outcomeFindings: ExecutionOutcomeFinding[] | null;
+  enhancementOpportunities: ExecutionEnhancementOpportunity[] | null;
   status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'cancelled';
   streamEntries: import('@/types/feedback').StreamEntry[] | null;
   /** Model the CLI actually reported running (from its init stream-json event), not just what was requested. */

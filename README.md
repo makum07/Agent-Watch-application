@@ -352,23 +352,34 @@ The analytics page provides **computed facts** about every session:
 
 This is the bridge between observing a run and knowing exactly where feedback should go.
 
-AgentWatch builds a rich prompt containing the full session structure, agent hierarchy, tool call timelines, artifacts, and — crucially — the **skill and agent instructions** each agent was operating under. Claude then analyses the session **against those instructions**, identifying where each agent fell short, deviated, or succeeded.
+AgentWatch builds a rich prompt containing the full session structure, agent hierarchy, tool call timelines, artifacts, and — crucially — the **skill and agent instructions** each agent was operating under. Claude then judges every agent against **three independent lenses**, not just whether it followed the rules — a clean result on one lens never excuses the others, so an agent can pass all three, one, or none:
+
+| Lens | Question it answers | Evidence it's grounded in |
+| --- | --- | --- |
+| **Execution Findings** | Did the agent's *process* comply with its skill/agent definition? | Tool calls and actions from the JSONL |
+| **Outcome Quality** | Was what the agent actually *produced* adequate for the task — independent of whether the process was clean? | The artifact or final message content itself, read directly — not inferred from tool-call success |
+| **Enhancement Opportunities** | Could the definition itself ask for more, so every future run benefits — even when this run was fully compliant and the result was fine? | A generalizable gap between the definition and what this session's evidence shows would help |
+
+The last lens exists specifically so a workflow that has matured past its early execution bugs doesn't fall silent: a session where every agent complied and every result was adequate can still surface a concrete way to strengthen the definition, because compliance with the current instructions is never treated as proof those instructions are already optimal. Each of the three is designed to avoid re-describing the same incident from a different angle — an item only qualifies for a lens if it isn't already explained by one of the others.
 
 The result is not a general performance report. It is a targeted answer to the question: *"Which agent should I give feedback to, and why?"*
 
 ![Analysing the session execution against skill/agent instructions using AI analysis](<UI screenshots/Analysing the session execution against the instruction of skill or agent using AI analysis for insights on giving feedback.png>)
 
 The AI analysis surfaces:
-- Where an agent's output diverged from what its skill or agent instructions required
+- Where an agent's output diverged from what its skill or agent instructions required (Execution Findings)
+- Where a compliant run still produced an incomplete or incorrect deliverable (Outcome Quality)
+- Where a skill or agent definition could be made more thorough, based on what this specific session revealed (Enhancement Opportunities)
 - Root causes for failures, traced back to the specific agent that introduced them
 - Delegation quality — whether the orchestrator split work appropriately
-- Concrete, agent-specific improvement recommendations
+
+Every item across all three lenses can be attached directly as ready-to-paste feedback on the specific agent it traces to — the same one-click flow, whether it's a process finding, a quality gap, or a definition enhancement.
 
 The analysis streams live in the browser — thinking blocks, tool calls (colour-coded by type), text output, and progress indicators auto-scroll as new events arrive. Each analysis cycle is stored for future reference.
 
 You choose which model (Haiku, Sonnet, or Opus) drives the analysis, and can stop a run mid-flight if it's no longer needed — both save tokens on a run you no longer want. Execution analysis always spawns a brand-new one-shot Claude Code session rather than resuming the session being analysed, so AgentWatch surfaces that new session's id on the cycle (click to copy) — useful if you want to `claude --resume <id>` into it later to see exactly how the analysis itself was produced. A small badge on the cycle also shows the model the CLI actually reported running, confirming your choice took effect.
 
-**Why it matters:** instead of guessing which agent caused a problem, you get an evidence-based answer grounded in the actual instructions the agents were given — so your feedback lands on the right target.
+**Why it matters:** instead of guessing which agent caused a problem, you get an evidence-based answer grounded in the actual instructions the agents were given — and instead of the analysis going quiet once a workflow stops having bugs, it keeps finding ways to make the workflow *better*, not just *correct*.
 
 ### Feedback — the most important capability
 
@@ -602,7 +613,10 @@ AgentWatch provides the full progression for Claude-based workflows:
 | **Artifact** | A file or output one agent produces and passes to the next |
 | **Skill** | A reusable, packaged workflow (e.g. "analyse a ticket and produce a deliverable") |
 | **Observability** | Being able to see and understand what happened inside a run |
-| **Execution analysis** | AI-powered analysis of a session against the skill/agent instructions, surfacing which agents need feedback |
+| **Execution analysis** | AI-powered analysis of a session judging every agent against three independent lenses — execution findings, outcome quality, and enhancement opportunities — surfacing which agents need feedback |
+| **Execution finding** | A process-level deviation: a specific instruction in a skill/agent definition that wasn't followed, evidenced by tool calls and actions |
+| **Outcome finding** | A content-level gap: the agent's process was compliant, but the artifact or response it actually produced still fell short of what the task needed, evidenced by the deliverable itself |
+| **Enhancement opportunity (execution analysis)** | A generalizable way a skill/agent definition could ask for more, revealed by this session's evidence — reported even when the agent fully complied and the result was adequate; not the same as a skill analysis "growth opportunity" below |
 | **Execution facts** | Algorithmically computed metrics about a session (cost, timing, errors) |
 | **Workflow drift / skill poisoning** | A workflow slowly getting worse because of vague, misdirected feedback |
 | **Self-healing** | A planned feature: a workflow that reviews its own runs and proposes its own fixes automatically |

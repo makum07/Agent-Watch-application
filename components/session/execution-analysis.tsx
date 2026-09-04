@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Sparkles, Play, Loader2, ChevronDown, ChevronRight,
   Copy, Check, Trash2, Eye, EyeOff, MessageSquarePlus,
-  FileText, MessageSquare, Clock, ListChecks,
+  FileText, MessageSquare, Clock, ListChecks, TrendingUp, Target,
 } from 'lucide-react';
 import { cn, formatDuration } from '@/lib/utils';
 import { useExecutionAnalysisStore } from '@/store/execution-analysis-store';
@@ -20,8 +20,9 @@ import {
   MetaChip, CycleSectionHeader, CycleSectionLabel, Field, CalloutField, SEVERITY_COLOR,
 } from '@/components/shared/cycle-section';
 import type { SessionEvent } from '@/types/events';
-import type { ExecutionAnalysisCycle, ExecutionRecommendation } from '@/types/analytics';
+import type { ExecutionAnalysisCycle, ExecutionFinding, ExecutionOutcomeFinding, ExecutionEnhancementOpportunity } from '@/types/analytics';
 import { FEEDBACK_CATEGORIES, type FeedbackCategory } from '@/types/feedback';
+import { resolveAgentById } from '@/lib/agent-display';
 
 interface ExecutionAnalysisProps {
   sessionId: string;
@@ -268,9 +269,11 @@ function CycleCard({
 
   // At-a-glance stats so the collapsed row is informative on its own —
   // you shouldn't have to expand a cycle just to see what it found.
-  const recCount = cycle.recommendations?.length ?? 0;
+  const recCount = cycle.executionFindings?.length ?? 0;
+  const outcomeCount = cycle.outcomeFindings?.length ?? 0;
+  const enhCount = cycle.enhancementOpportunities?.length ?? 0;
   const severityCounts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
-  for (const r of cycle.recommendations ?? []) {
+  for (const r of cycle.executionFindings ?? []) {
     const sev = r.severity ?? 'medium';
     severityCounts[sev] = (severityCounts[sev] ?? 0) + 1;
   }
@@ -348,7 +351,7 @@ function CycleCard({
         <div className="flex items-center gap-3 px-3 pb-2 pt-1 text-[10px] text-[var(--aw-text-3)]">
           {recCount > 0 ? (
             <>
-              <MetaChip icon={<ListChecks />}>{recCount} recommendation{recCount !== 1 ? 's' : ''}</MetaChip>
+              <MetaChip icon={<ListChecks />}>{recCount} execution finding{recCount !== 1 ? 's' : ''}</MetaChip>
               {(['critical', 'high', 'medium', 'low'] as const).filter(sev => severityCounts[sev] > 0).map(sev => (
                 <span key={sev} className="font-mono shrink-0" style={{ color: SEVERITY_COLOR[sev] }}>
                   {severityCounts[sev]} {sev}
@@ -356,8 +359,14 @@ function CycleCard({
               ))}
             </>
           ) : cycle.status === 'completed' ? (
-            <MetaChip icon={<ListChecks />}>No recommendations</MetaChip>
+            <MetaChip icon={<ListChecks />}>No execution findings</MetaChip>
           ) : null}
+          {outcomeCount > 0 && (
+            <MetaChip icon={<Target />}>{outcomeCount} outcome finding{outcomeCount !== 1 ? 's' : ''}</MetaChip>
+          )}
+          {enhCount > 0 && (
+            <MetaChip icon={<TrendingUp />}>{enhCount} enhancement{enhCount !== 1 ? 's' : ''}</MetaChip>
+          )}
           {entryCount > 0 && (
             <MetaChip icon={<MessageSquare />}>{entryCount} event{entryCount !== 1 ? 's' : ''}</MetaChip>
           )}
@@ -421,13 +430,37 @@ function CycleCard({
             )}
           </div>
 
-          {/* Recommendations — the primary payload of a cycle, always shown when present */}
+          {/* Execution findings — the primary payload of a cycle, always shown when present */}
           {recCount > 0 && (
             <div>
-              <CycleSectionLabel icon={<ListChecks />} label="AI Recommendations" count={recCount} />
+              <CycleSectionLabel icon={<ListChecks />} label="Execution Findings" count={recCount} />
               <div className="px-3 pb-3 space-y-1.5">
-                {cycle.recommendations!.map((rec, i) => (
-                  <AIRecommendationCard key={i} rec={rec} sessionId={sessionId} />
+                {cycle.executionFindings!.map((rec, i) => (
+                  <ExecutionFindingCard key={i} rec={rec} sessionId={sessionId} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Outcome findings — agents that complied but whose deliverable still fell short */}
+          {outcomeCount > 0 && (
+            <div>
+              <CycleSectionLabel icon={<Target />} label="Outcome Findings" count={outcomeCount} />
+              <div className="px-3 pb-3 space-y-1.5">
+                {cycle.outcomeFindings!.map((finding, i) => (
+                  <OutcomeFindingCard key={i} finding={finding} sessionId={sessionId} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Enhancement opportunities — agents that fully complied but could still get a better result */}
+          {enhCount > 0 && (
+            <div>
+              <CycleSectionLabel icon={<TrendingUp />} label="Enhancement Opportunities" count={enhCount} />
+              <div className="px-3 pb-3 space-y-1.5">
+                {cycle.enhancementOpportunities!.map((opp, i) => (
+                  <EnhancementOpportunityCard key={i} opp={opp} sessionId={sessionId} />
                 ))}
               </div>
             </div>
@@ -438,7 +471,7 @@ function CycleCard({
   );
 }
 
-// ── AI Recommendation Card ────────────────────────────────────────────────
+// ── Execution Finding Card ──────────────────────────────────────────────
 
 function humanizeLabel(raw: string): string {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -450,7 +483,7 @@ const CONFIDENCE_COLOR: Record<string, string> = {
   low: 'var(--aw-text-4)',
 };
 
-function AIRecommendationCard({ rec, sessionId }: { rec: ExecutionRecommendation; sessionId: string }) {
+function ExecutionFindingCard({ rec, sessionId }: { rec: ExecutionFinding; sessionId: string }) {
   const addFeedback = useFeedbackStore(s => s.addFeedback);
   const { agentMap } = useSessionStore();
   const [expanded, setExpanded] = useState(false);
@@ -462,7 +495,7 @@ function AIRecommendationCard({ rec, sessionId }: { rec: ExecutionRecommendation
 
   // Resolved from the session's own agent data rather than trusting the
   // model to echo a name back — the id is all it needs to get right.
-  const targetAgent = rec.agentId ? agentMap.get(rec.agentId) : undefined;
+  const targetAgent = resolveAgentById(agentMap, rec.agentId);
   const targetAgentName = targetAgent
     ? (targetAgent.description?.slice(0, 60) || targetAgent.subagentType || targetAgent.type)
     : null;
@@ -472,7 +505,7 @@ function AIRecommendationCard({ rec, sessionId }: { rec: ExecutionRecommendation
     setFeedbackState('adding');
     const created = await addFeedback({
       sessionId,
-      agentId: rec.agentId,
+      agentId: targetAgent?.id ?? rec.agentId,
       agentName: targetAgentName,
       category: validCategory,
       text: rec.feedbackText,
@@ -558,6 +591,216 @@ function AIRecommendationCard({ rec, sessionId }: { rec: ExecutionRecommendation
               )}
               <div className="flex items-end gap-2">
                 <p className="text-[10px] text-[var(--aw-text-2)] flex-1 leading-relaxed">{rec.feedbackText}</p>
+                <button
+                  onClick={handleAddFeedback}
+                  disabled={feedbackState !== 'idle'}
+                  className={cn(
+                    'flex items-center gap-1 text-[10px] px-2 py-1 rounded shrink-0 font-medium transition-colors',
+                    feedbackState === 'added'
+                      ? 'bg-[var(--aw-green)]/15 text-[var(--aw-green)]'
+                      : 'bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                  title={`Add as feedback (${humanizeLabel(validCategory)})`}
+                >
+                  {feedbackState === 'added'
+                    ? <Check className="h-3 w-3" />
+                    : <MessageSquarePlus className="h-3 w-3" />}
+                  {feedbackState === 'added' ? 'Added' : feedbackState === 'adding' ? 'Adding…' : 'Add as Feedback'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Outcome Finding Card ─────────────────────────────────────────────────
+
+function OutcomeFindingCard({ finding, sessionId }: { finding: ExecutionOutcomeFinding; sessionId: string }) {
+  const addFeedback = useFeedbackStore(s => s.addFeedback);
+  const { agentMap } = useSessionStore();
+  const [expanded, setExpanded] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<'idle' | 'adding' | 'added'>('idle');
+
+  const validCategory = FEEDBACK_CATEGORIES.some(c => c.value === finding.feedbackCategory)
+    ? (finding.feedbackCategory as FeedbackCategory)
+    : 'other';
+
+  const targetAgent = resolveAgentById(agentMap, finding.agentId);
+  const targetAgentName = targetAgent
+    ? (targetAgent.description?.slice(0, 60) || targetAgent.subagentType || targetAgent.type)
+    : null;
+
+  const handleAddFeedback = async () => {
+    if (!finding.agentId || !finding.feedbackText || feedbackState !== 'idle') return;
+    setFeedbackState('adding');
+    const created = await addFeedback({
+      sessionId,
+      agentId: targetAgent?.id ?? finding.agentId,
+      agentName: targetAgentName,
+      category: validCategory,
+      text: finding.feedbackText,
+    });
+    setFeedbackState(created ? 'added' : 'idle');
+  };
+
+  const heading = finding.title || 'Outcome finding';
+
+  return (
+    <div className="rounded-r border-l-2 overflow-hidden" style={{ borderLeftColor: 'var(--aw-orange-bright)', background: 'var(--aw-orange-bright)0a' }}>
+      <button
+        className="w-full flex items-center gap-2 p-2.5 hover:bg-[var(--aw-bg-1)]/50 transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <Target className="h-3 w-3 shrink-0" style={{ color: 'var(--aw-orange-bright)' }} />
+        <span className="text-[11px] font-medium text-[var(--aw-text-0)] flex-1 min-w-0" title={heading}>{heading}</span>
+        {finding.confidence && (
+          <span
+            className="text-[9px] uppercase font-medium tracking-wider shrink-0"
+            style={{ color: CONFIDENCE_COLOR[finding.confidence] ?? CONFIDENCE_COLOR.medium }}
+            title="Confidence"
+          >
+            {finding.confidence}
+          </span>
+        )}
+        <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+
+      {expanded && (
+        <div className="px-2.5 pb-2.5 pt-1 space-y-2.5 border-t border-[var(--aw-bg-2)]">
+          {finding.whatWasExpected && <Field label="What the task needed">{finding.whatWasExpected}</Field>}
+          {finding.whatWasProduced && <Field label="What was produced">{finding.whatWasProduced}</Field>}
+          {finding.gap && <CalloutField label="Gap">{finding.gap}</CalloutField>}
+          {finding.evidence && finding.evidence.length > 0 && (
+            <Field label={`Evidence (${finding.evidence.length})`}>
+              <ul className="space-y-1">
+                {finding.evidence.map((e, i) => (
+                  <li key={i} className="pl-2 border-l-2 border-[var(--aw-bg-3)] italic">{e}</li>
+                ))}
+              </ul>
+            </Field>
+          )}
+
+          {finding.agentId && finding.feedbackText && (
+            <div className="rounded border border-[var(--aw-bg-3)] bg-[var(--aw-bg-0)] p-2.5">
+              {targetAgentName && (
+                <p className="text-[9px] text-[var(--aw-text-4)] mb-1">
+                  Feedback for <span className="text-[var(--aw-text-2)] font-medium">{targetAgentName}</span>
+                </p>
+              )}
+              <div className="flex items-end gap-2">
+                <p className="text-[10px] text-[var(--aw-text-2)] flex-1 leading-relaxed">{finding.feedbackText}</p>
+                <button
+                  onClick={handleAddFeedback}
+                  disabled={feedbackState !== 'idle'}
+                  className={cn(
+                    'flex items-center gap-1 text-[10px] px-2 py-1 rounded shrink-0 font-medium transition-colors',
+                    feedbackState === 'added'
+                      ? 'bg-[var(--aw-green)]/15 text-[var(--aw-green)]'
+                      : 'bg-[var(--aw-green-3)] hover:bg-[var(--aw-green-2)] text-white disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                  title={`Add as feedback (${humanizeLabel(validCategory)})`}
+                >
+                  {feedbackState === 'added'
+                    ? <Check className="h-3 w-3" />
+                    : <MessageSquarePlus className="h-3 w-3" />}
+                  {feedbackState === 'added' ? 'Added' : feedbackState === 'adding' ? 'Adding…' : 'Add as Feedback'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Enhancement Opportunity Card ────────────────────────────────────────
+
+function EnhancementOpportunityCard({ opp, sessionId }: { opp: ExecutionEnhancementOpportunity; sessionId: string }) {
+  const addFeedback = useFeedbackStore(s => s.addFeedback);
+  const { agentMap } = useSessionStore();
+  const [expanded, setExpanded] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<'idle' | 'adding' | 'added'>('idle');
+
+  const validCategory = FEEDBACK_CATEGORIES.some(c => c.value === opp.feedbackCategory)
+    ? (opp.feedbackCategory as FeedbackCategory)
+    : 'other';
+
+  const targetAgent = resolveAgentById(agentMap, opp.agentId);
+  const targetAgentName = targetAgent
+    ? (targetAgent.description?.slice(0, 60) || targetAgent.subagentType || targetAgent.type)
+    : null;
+
+  const handleAddFeedback = async () => {
+    if (!opp.agentId || !opp.feedbackText || feedbackState !== 'idle') return;
+    setFeedbackState('adding');
+    const created = await addFeedback({
+      sessionId,
+      agentId: targetAgent?.id ?? opp.agentId,
+      agentName: targetAgentName,
+      category: validCategory,
+      text: opp.feedbackText,
+    });
+    setFeedbackState(created ? 'added' : 'idle');
+  };
+
+  const heading = opp.title || 'Enhancement opportunity';
+
+  return (
+    <div className="rounded-r border-l-2 overflow-hidden" style={{ borderLeftColor: 'var(--aw-blue)', background: 'var(--aw-blue)0a' }}>
+      <button
+        className="w-full flex items-center gap-2 p-2.5 hover:bg-[var(--aw-bg-1)]/50 transition-colors text-left"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <TrendingUp className="h-3 w-3 shrink-0" style={{ color: 'var(--aw-blue)' }} />
+        <span className="text-[11px] font-medium text-[var(--aw-text-0)] flex-1 min-w-0" title={heading}>{heading}</span>
+        {targetAgentName && (
+          <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--aw-bg-2)] text-[var(--aw-text-3)] shrink-0 truncate max-w-[140px]" title={targetAgentName}>
+            {targetAgentName}
+          </span>
+        )}
+        {opp.confidence && (
+          <span
+            className="text-[9px] uppercase font-medium tracking-wider shrink-0"
+            style={{ color: CONFIDENCE_COLOR[opp.confidence] ?? CONFIDENCE_COLOR.medium }}
+            title="Confidence"
+          >
+            {opp.confidence}
+          </span>
+        )}
+        <ChevronRight className={cn('h-3 w-3 text-[var(--aw-text-4)] shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+
+      {expanded && (
+        <div className="px-2.5 pb-2.5 pt-1 space-y-2.5 border-t border-[var(--aw-bg-2)]">
+          {opp.currentInstruction && <Field label="Current instruction">{opp.currentInstruction}</Field>}
+          {opp.observation && <Field label="Observation">{opp.observation}</Field>}
+          {opp.evidence && opp.evidence.length > 0 && (
+            <Field label={`Evidence (${opp.evidence.length})`}>
+              <ul className="space-y-1">
+                {opp.evidence.map((e, i) => (
+                  <li key={i} className="pl-2 border-l-2 border-[var(--aw-bg-3)] italic">{e}</li>
+                ))}
+              </ul>
+            </Field>
+          )}
+          {opp.suggestedEnhancement && (
+            <CalloutField label="Suggested enhancement">{opp.suggestedEnhancement}</CalloutField>
+          )}
+          {opp.expectedBenefit && <Field label="Expected benefit">{opp.expectedBenefit}</Field>}
+
+          {opp.agentId && opp.feedbackText && (
+            <div className="rounded border border-[var(--aw-bg-3)] bg-[var(--aw-bg-0)] p-2.5">
+              {targetAgentName && (
+                <p className="text-[9px] text-[var(--aw-text-4)] mb-1">
+                  Feedback for <span className="text-[var(--aw-text-2)] font-medium">{targetAgentName}</span>
+                </p>
+              )}
+              <div className="flex items-end gap-2">
+                <p className="text-[10px] text-[var(--aw-text-2)] flex-1 leading-relaxed">{opp.feedbackText}</p>
                 <button
                   onClick={handleAddFeedback}
                   disabled={feedbackState !== 'idle'}
