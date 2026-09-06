@@ -433,7 +433,7 @@ function CycleCard({
           {/* Execution findings — the primary payload of a cycle, always shown when present */}
           {recCount > 0 && (
             <div>
-              <CycleSectionLabel icon={<ListChecks />} label="Execution Findings" count={recCount} />
+              <CycleSectionLabel icon={<ListChecks />} label="Execution Findings" count={recCount} tooltip="Places where the agent didn't do what its instructions told it to do." />
               <div className="px-3 pb-3 space-y-1.5">
                 {cycle.executionFindings!.map((rec, i) => (
                   <ExecutionFindingCard key={i} rec={rec} sessionId={sessionId} />
@@ -445,7 +445,7 @@ function CycleCard({
           {/* Outcome findings — agents that complied but whose deliverable still fell short */}
           {outcomeCount > 0 && (
             <div>
-              <CycleSectionLabel icon={<Target />} label="Outcome Findings" count={outcomeCount} />
+              <CycleSectionLabel icon={<Target />} label="Outcome Findings" count={outcomeCount} tooltip="The agent followed its instructions, but was what it actually produced good enough? This looks at the result itself, not how it got there." />
               <div className="px-3 pb-3 space-y-1.5">
                 {cycle.outcomeFindings!.map((finding, i) => (
                   <OutcomeFindingCard key={i} finding={finding} sessionId={sessionId} />
@@ -457,7 +457,7 @@ function CycleCard({
           {/* Enhancement opportunities — agents that fully complied but could still get a better result */}
           {enhCount > 0 && (
             <div>
-              <CycleSectionLabel icon={<TrendingUp />} label="Enhancement Opportunities" count={enhCount} />
+              <CycleSectionLabel icon={<TrendingUp />} label="Enhancement Opportunities" count={enhCount} tooltip="Ideas for making the instructions better next time — even when this run had no problems at all." />
               <div className="px-3 pb-3 space-y-1.5">
                 {cycle.enhancementOpportunities!.map((opp, i) => (
                   <EnhancementOpportunityCard key={i} opp={opp} sessionId={sessionId} />

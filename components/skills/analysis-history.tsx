@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useSkillStore } from '@/store/skill-store';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
+import { InfoTooltip } from '@/components/shared/cycle-section';
 import { ModelSelect } from '@/components/shared/model-select';
 import { StopButton } from '@/components/shared/stop-button';
 import { CopyableSessionId } from '@/components/shared/copyable-session-id';
@@ -568,15 +569,24 @@ function OverviewTab({ cycle, hasSummary, onApprove, editingFixPrompt, fixPrompt
       </div>
 
       {cycle.currentStatus && (
-        <CalloutField label="Current Status" tone="purple" icon={<Activity className="h-3 w-3" />} size="base">
+        <CalloutField
+          label="Current Status"
+          tone="purple"
+          icon={<Activity className="h-3 w-3" />}
+          size="base"
+          tooltip="A quick summary of how well this skill has been working overall, based on everything recorded about it so far — not just this one report."
+        >
           <MarkdownRenderer content={cycle.currentStatus} size="base" />
         </CalloutField>
       )}
 
       {cycle.recommendations && cycle.recommendations.length > 0 && (
         <div>
-          <div className="text-[11px] font-medium text-[var(--aw-text-2)] mb-2 uppercase tracking-wider">
-            Recommendations ({cycle.recommendations.length})
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
+              Recommendations ({cycle.recommendations.length})
+            </span>
+            <InfoTooltip text="Specific problems found in past runs of this skill, along with proof and how sure we are about each one." />
           </div>
           <div className="space-y-2">
             {cycle.recommendations.map((rec, i) => <RecommendationCard key={i} rec={rec} />)}
@@ -591,6 +601,7 @@ function OverviewTab({ cycle, hasSummary, onApprove, editingFixPrompt, fixPrompt
             <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
               Growth Opportunities ({cycle.growthOpportunities.length})
             </span>
+            <InfoTooltip text="Not fixes for something broken — ideas for how this skill could do more, or do it better." />
           </div>
           <div className="space-y-2">
             {cycle.growthOpportunities.map((op, i) => <GrowthOpportunityCard key={i} op={op} />)}
@@ -605,6 +616,7 @@ function OverviewTab({ cycle, hasSummary, onApprove, editingFixPrompt, fixPrompt
             <span className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wider">
               Phase-Level Growth Opportunities ({cycle.phaseGrowthOpportunities.length})
             </span>
+            <InfoTooltip text="Looks beyond this one skill, at the bigger stage of work it's part of, and suggests improvements there too." />
           </div>
           <div className="space-y-2">
             {cycle.phaseGrowthOpportunities.map((op, i) => <PhaseGrowthOpportunityCard key={i} op={op} />)}
@@ -923,12 +935,13 @@ const CALLOUT_TONES: Record<'green' | 'purple', string> = {
   purple: 'var(--aw-purple-light)',
 };
 
-function CalloutField({ label, children, tone = 'green', icon, size = 'sm' }: {
+function CalloutField({ label, children, tone = 'green', icon, size = 'sm', tooltip }: {
   label: string;
   children: React.ReactNode;
   tone?: 'green' | 'purple';
   icon?: React.ReactNode;
   size?: 'sm' | 'base';
+  tooltip?: string;
 }) {
   const color = CALLOUT_TONES[tone];
   return (
@@ -936,6 +949,7 @@ function CalloutField({ label, children, tone = 'green', icon, size = 'sm' }: {
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color }}>
         {icon}
         {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
       </div>
       <div className={cn(size === 'base' ? 'text-[13px]' : 'text-[11px]', 'text-[var(--aw-text-1)] leading-relaxed')}>{children}</div>
     </div>

@@ -1,11 +1,25 @@
 'use client';
 
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Info } from 'lucide-react';
 
 // Shared building blocks for "cycle" style UIs (Apply Improvements history,
 // AI session/skill analysis history) — one consistent shape for the
 // at-a-glance meta strip, collapsible sub-section headers, and labeled
 // detail fields, instead of each surface inventing its own.
+
+// A small hoverable "?" affordance for explaining a section/label a
+// first-time viewer wouldn't recognize on its own — e.g. what distinguishes
+// "Execution Findings" from "Outcome Quality" from "Enhancement
+// Opportunities". Uses the browser's native title tooltip, consistent with
+// how the rest of the app already surfaces hover explanations (model
+// badges, confidence labels), rather than introducing a custom popover.
+export function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="inline-flex shrink-0 cursor-help" title={text} aria-label={text}>
+      <Info className="h-3 w-3 text-[var(--aw-text-4)] hover:text-[var(--aw-text-2)] transition-colors" />
+    </span>
+  );
+}
 
 // A small icon+text pill used in a cycle header's at-a-glance meta strip —
 // keeps the summary reading as a single row instead of ad-hoc bits.
@@ -53,11 +67,12 @@ export function CycleSectionHeader({
 // A static (non-collapsible) section header for content that's always
 // shown when present, e.g. the primary payload of a cycle — mirrors
 // CycleSectionHeader's shape minus the chevron/toggle.
-export function CycleSectionLabel({ icon, label, count, trailing }: {
+export function CycleSectionLabel({ icon, label, count, trailing, tooltip }: {
   icon: React.ReactNode;
   label: string;
   count?: number;
   trailing?: React.ReactNode;
+  tooltip?: string;
 }) {
   return (
     <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-[var(--aw-text-1)]">
@@ -66,6 +81,7 @@ export function CycleSectionLabel({ icon, label, count, trailing }: {
       {count !== undefined && (
         <span className="text-[10px] text-[var(--aw-text-4)] font-normal">({count})</span>
       )}
+      {tooltip && <InfoTooltip text={tooltip} />}
       {trailing && <span className="ml-auto text-[10px] text-[var(--aw-text-4)] font-normal">{trailing}</span>}
     </div>
   );
