@@ -6,7 +6,14 @@ export const CONTEXT_FILE_MIME_TYPES: Record<string, string> = {
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.md': 'text/markdown',
   '.txt': 'text/plain',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
 };
+
+export function isImageMimeType(mimeType: string): boolean {
+  return mimeType.startsWith('image/');
+}
 
 export const MAX_CONTEXT_FILE_SIZE = 25 * 1024 * 1024;
 
@@ -129,7 +136,7 @@ export async function extractContextFileText(
   const ext = getExtension(filename);
   const mimeType = CONTEXT_FILE_MIME_TYPES[ext];
   if (!mimeType) {
-    throw new FileExtractionError('Only .xlsx, .pptx, .md, and .txt files are supported.');
+    throw new FileExtractionError('Only .xlsx, .pptx, .md, .txt, .jpg, .jpeg, and .png files are supported.');
   }
 
   if (ext === '.md' || ext === '.txt') {
@@ -137,6 +144,20 @@ export async function extractContextFileText(
     if (!text) {
       throw new FileExtractionError('This file has no readable text.');
     }
+    return { text, mimeType };
+  }
+
+  if (ext === '.jpg' || ext === '.jpeg' || ext === '.png') {
+    const isValidImage = ext === '.png'
+      ? buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 && buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
+      : buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    if (!isValidImage) {
+      throw new FileExtractionError(`This file is not a valid ${ext === '.png' ? 'PNG' : 'JPEG'} image.`);
+    }
+    // No OCR/text extraction — the raw image itself is what gets handed to
+    // the analysis agent (which can view images directly); this placeholder
+    // only fills the extracted_text column for display and length checks.
+    const text = `[Image attached: ${filename} — no text was extracted; view the image directly for its content.]`;
     return { text, mimeType };
   }
 

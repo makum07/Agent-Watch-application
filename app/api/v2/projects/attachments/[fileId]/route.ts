@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getProjectContextFile, deleteProjectContextFile } from '@/lib/services/project-context';
+import { getProjectContextFile, getProjectContextFileRawBuffer, deleteProjectContextFile } from '@/lib/services/project-context';
+import { isImageMimeType } from '@/lib/services/file-extraction';
 import { resolveSourceFromRequest } from '@/lib/api/resolve-source';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,17 @@ export async function GET(
     const file = getProjectContextFile(fileId, sourceId);
     if (!file) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
+    }
+    if (isImageMimeType(file.mimeType)) {
+      const buffer = getProjectContextFileRawBuffer(fileId, sourceId);
+      if (!buffer) {
+        return NextResponse.json({ error: 'Image file is missing on disk' }, { status: 404 });
+      }
+      return NextResponse.json({
+        filename: file.filename,
+        mimeType: file.mimeType,
+        dataUrl: `data:${file.mimeType};base64,${buffer.toString('base64')}`,
+      });
     }
     return NextResponse.json({ filename: file.filename, extractedText: file.extractedText });
   } catch (err) {
