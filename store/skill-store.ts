@@ -21,6 +21,12 @@ type ClientSkillDetailData = Omit<SkillDetailData, 'contextFiles' | 'projectCont
   projectContextFiles: ProjectContextFileSummary[];
 };
 
+// Text documents return their extracted text; image attachments return a
+// base64 data URL instead (see the attachments/[fileId] routes).
+export type ViewedContextFile =
+  | { filename: string; extractedText: string }
+  | { filename: string; mimeType: string; dataUrl: string };
+
 interface SkillStore {
   skills: SkillSummary[];
   selectedSkill: ClientSkillDetailData | null;
@@ -61,11 +67,11 @@ interface SkillStore {
   deleteAnalysisCycle: (skillId: string, cycleId: string) => Promise<void>;
   uploadContextFile: (skillId: string, file: File) => Promise<boolean>;
   deleteContextFile: (skillId: string, fileId: string) => Promise<void>;
-  viewContextFile: (skillId: string, fileId: string) => Promise<{ filename: string; extractedText: string } | null>;
+  viewContextFile: (skillId: string, fileId: string) => Promise<ViewedContextFile | null>;
   loadProjectContextFiles: (project: string) => Promise<void>;
   uploadProjectContextFile: (project: string, file: File) => Promise<boolean>;
   deleteProjectContextFile: (fileId: string) => Promise<void>;
-  viewProjectContextFile: (fileId: string) => Promise<{ filename: string; extractedText: string } | null>;
+  viewProjectContextFile: (fileId: string) => Promise<ViewedContextFile | null>;
   handleStreamEvent: (event: SessionEvent) => void;
   clearError: () => void;
   clearStream: () => void;

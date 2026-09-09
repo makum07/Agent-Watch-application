@@ -33,24 +33,34 @@ const CONTEXT_FILE_INLINE_THRESHOLD = 20_000;
 interface DeferrableContextFile {
   extractedText: string;
   textPath: string | null;
+  mimeType: string;
+}
+
+// Images have no extracted text to inline or defer-to-sidecar — `textPath`
+// points straight at the raw image (see attachments routes), and the agent
+// is told to view it directly instead of Reading it as text.
+function isImageContextFile(file: DeferrableContextFile): boolean {
+  return file.mimeType.startsWith('image/');
 }
 
 function isContextFileDeferred(file: DeferrableContextFile): boolean {
-  return file.extractedText.length > CONTEXT_FILE_INLINE_THRESHOLD && !!file.textPath;
+  return !isImageContextFile(file) && file.extractedText.length > CONTEXT_FILE_INLINE_THRESHOLD && !!file.textPath;
 }
 
 // Directories to grant via --add-dir so the spawned analysis agent can Read
-// the sidecar text of any deferred (too-large-to-inline) context file —
-// skill-scoped and project-scoped files live under different directories
-// (see attachments routes) so both lists are passed in and merged here.
-// Left untranslated for WSL — spawnClaudeCli translates every --add-dir
-// target to /mnt/<drive> itself when routing through wsl.
+// the sidecar text of any deferred (too-large-to-inline) context file, or
+// view any attached image — skill-scoped and project-scoped files live
+// under different directories (see attachments routes) so both lists are
+// passed in and merged here. Left untranslated for WSL — spawnClaudeCli
+// translates every --add-dir target to /mnt/<drive> itself when routing
+// through wsl.
 function getDeferredContextFileDirs(...fileLists: DeferrableContextFile[][]): string[] {
   const dirs = new Set<string>();
   for (const files of fileLists) {
     for (const file of files) {
-      if (!isContextFileDeferred(file)) continue;
-      dirs.add(path.dirname(file.textPath!));
+      if (!isContextFileDeferred(file) && !isImageContextFile(file)) continue;
+      if (!file.textPath) continue;
+      dirs.add(path.dirname(file.textPath));
     }
   }
   return [...dirs];
@@ -261,8 +271,10 @@ export function generateAnalysisPrompt(
     lines.push(`Before treating any document entry as already resolved by this skill — and therefore leaving it out of Growth Opportunities — verify that specifically against the current skill definition file you read for this analysis (what it actually instructs the skill to do right now), not against whether a prior cycle already raised it, whether this cycle's execution history is silent on it, or how much time has passed since the document was produced. Absence from Prior Skill Analyses is not evidence of a fix. If the skill definition doesn't clearly show the gap closed, surface it again this cycle even if an earlier cycle also raised it — a genuinely unresolved gap does not get one mention and then silence.\n`);
 
     for (const file of detail.projectContextFiles) {
-      lines.push(`### ${file.filename} — project-wide, shared across every skill in \`${skill.project}\`${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : ''}\n`);
-      if (isContextFileDeferred(file)) {
+      lines.push(`### ${file.filename} — project-wide, shared across every skill in \`${skill.project}\`${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : isImageContextFile(file) ? ' (image)' : ''}\n`);
+      if (isImageContextFile(file)) {
+        lines.push(`This is an image file. View it directly at \`${file.textPath}\` before evaluating the skill so its content informs your analysis.\n`);
+      } else if (isContextFileDeferred(file)) {
         lines.push(`Full content is available at \`${file.textPath}\`. Read this file before evaluating the skill so its content informs your analysis.\n`);
       } else {
         lines.push(file.extractedText.trim());
@@ -270,8 +282,10 @@ export function generateAnalysisPrompt(
       }
     }
     for (const file of detail.contextFiles) {
-      lines.push(`### ${file.filename} — specific to this skill${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : ''}\n`);
-      if (isContextFileDeferred(file)) {
+      lines.push(`### ${file.filename} — specific to this skill${isContextFileDeferred(file) ? ` (${file.extractedText.length.toLocaleString()} chars — too large to inline)` : isImageContextFile(file) ? ' (image)' : ''}\n`);
+      if (isImageContextFile(file)) {
+        lines.push(`This is an image file. View it directly at \`${file.textPath}\` before evaluating the skill so its content informs your analysis.\n`);
+      } else if (isContextFileDeferred(file)) {
         lines.push(`Full content is available at \`${file.textPath}\`. Read this file before evaluating the skill so its content informs your analysis.\n`);
       } else {
         lines.push(file.extractedText.trim());

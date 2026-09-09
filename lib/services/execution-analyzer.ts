@@ -12,7 +12,7 @@ import type {
   ImprovementRecommendation,
   EnhancedSummary,
   EnhancedSessionAnalytics,
-  ExecutionRecommendation,
+  ExecutionFinding,
   ExecutionFacts,
 } from '@/types/analytics';
 import { analyzeSession, findCriticalPath } from './debug-analyzer';
@@ -1071,7 +1071,7 @@ export interface AnalysisPromptData {
     cycleNumber: number;
     createdAt: string;
     status: string;
-    recommendations: Array<{ severity: string; title: string }> | null;
+    executionFindings: Array<{ severity: string; title: string }> | null;
   }>;
 }
 
@@ -1086,7 +1086,7 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
 
   lines.push(`# Session Analysis — ${session.project}\n`);
   lines.push(`You are analyzing a completed multi-agent session running as Claude Code inside \`${projectDir}\`. Your goal is to surface specific observations the user can quickly review and add as feedback — not to produce a comprehensive report.\n`);
-  lines.push(`Analyze agents independently in the order listed under **Agents** below. For each agent, read its definition and conversation before evaluating it against **What Counts as a Finding**, and do not use evidence from another agent to infer a finding for the current agent.\n`);
+  lines.push(`Analyze agents independently in the order listed under **Agents** below. For each agent, read its definition and conversation, then judge it against three independent lenses, in order: **What Counts as a Finding** (did its process comply with its definition — from tool calls and actions?), **Outcome Quality** (was what it actually produced adequate — read from the deliverable's own content, not the process that made it?), and **Enhancement Opportunities** (could the definition ask for more, generalizably, beyond fixing what's already reported?). A clean result on one lens doesn't excuse the others — an agent can pass all three, one, or none. Do not use evidence from another agent to judge the current agent.\n`);
 
   // ── Session metadata ─────────────────────────────────────────────────
 
@@ -1129,7 +1129,42 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
   lines.push(`The relevant definition may be the skill definition or the agent definition — identify which one actually contains the violated instruction or missing guardrail rather than attributing it to whichever is more convenient.\n`);
   lines.push(`For each one, establish a chain from definition to proposed change: which instruction was violated or which guardrail is missing (name the definition file) → what the agent actually did (cite from the JSONL) → the impact, if the deviation likely affected the result or cost significant time/tokens → the specific change that would close the gap. A finding that skips a link in this chain — asserting impact without citing JSONL evidence, or proposing a change without a clear root cause — is not ready to report. "The agent should improve its error handling" is not this chain; "the agent definition says to stop after a permission denial, but the JSONL shows four subsequent attempts using different tools that produced the same denial, adding 18 seconds and 6 tool calls without changing the outcome — add an explicit stop-and-surface rule for repeated permission denials" is.\n`);
   lines.push(`Prefer direct JSONL evidence from the agent's own actions, tool calls, and final output. Do not infer an instruction violation from metadata such as FAIL status, tool-error counts, cost, or duration alone — those flag where to look, but only the agent's actual actions and output establish what happened. A FAIL outcome does not by itself mean the agent violated its instructions, and high token usage does not by itself mean the execution was inefficient; confirm each against the JSONL before treating it as a finding.\n`);
-  lines.push(`If an agent's behavior matches its definition and it didn't waste significant cost/time on unproductive retries, move on without writing anything for it. Do not flag general observations that aren't grounded in specific evidence from the JSONL.\n`);
+  lines.push(`A finding-free result means the agent's process complied — it says nothing about whether what it produced was any good or whether the definition could ask for more. The three lenses below use different evidence and are not a hierarchy of severity: judge Outcome Quality and Enhancement Opportunities on their own terms before moving on.\n`);
+
+  // ── Outcome quality — a second, separate lens ────────────────────────
+  // Compliance and quality are different questions, and so is the evidence
+  // each draws on: a finding above is established from tool calls and
+  // actions (process). This lens is established from the deliverable's own
+  // content (product) — reading the artifact or final message directly,
+  // not inferring quality from whether the tool calls that produced it
+  // succeeded. Without that split, a recovered tool error reads as
+  // "content evidence" too, and the same incident gets reported twice.
+
+  lines.push(`## Outcome Quality (a second, independent lens)\n`);
+  lines.push(`A deliverable that was produced without any tool call failing, and looks complete at a glance, is not evidence that it's actually adequate — do not let that conclude the analysis. Apply this lens to every agent, including ones with no finding above, and read the content critically rather than checking for the mere presence of an answer.\n`);
+  lines.push(`This lens is about content, not process: read what the agent actually produced — the artifact(s) it wrote (see Artifacts below), its final message, or the records it created in an external system — and judge that content against what the task needed to accomplish. A tool call succeeding or failing is not, by itself, evidence here either way: a run with clean tool calls can still under-deliver, and a run that recovered from failed tool calls can still deliver something complete and correct.\n`);
+  lines.push(`Read the deliverable against the task's own material and ask: does it address everything the ticket, spec, or prior output actually called for? Is there a specific requirement, claim, or case visible in that material which the output omits, gets wrong, or handles superficially? Would someone relying on this output as-is need to go back and fix or fill in something the task itself already made visible?\n`);
+  lines.push(`A deliverable can fall short by being unclear as well as by being incomplete. If the source material the agent worked from draws a distinction that matters — a primary item versus the related or supporting ones the agent also pulled in, a cause versus its effects, a requirement versus a nice-to-have — and the output blurs or drops that distinction, that is a content gap, not a formatting choice.\n`);
+  lines.push(`Report an outcome finding only when the deliverable's own content, read directly, shows a shortfall against something the ticket, spec, or prior output plainly called for — not a shortfall inferred from how the agent got there. Judge the boundary with subjective preference by consequence, not taste: if the ambiguity or omission could cause whoever relies on this output to act on the wrong thing or misjudge which is which, it's a gap; if it's purely how you'd have formatted it with no such consequence, it isn't. Do not flag a gap that depended on information the agent had no way to know.\n`);
+  lines.push(`If the only evidence you have is a tool-call error already covered above, it belongs there, not here — do not relabel a process failure as a content gap just because the agent eventually recovered from it.\n`);
+
+  // ── Enhancement opportunities — a third, separate lens ────────────────
+  // Findings above fire on process, outcome quality fires on product. This
+  // section is for the remaining, generalizable question: independent of
+  // whether this run had a problem, does the definition need to ask for
+  // more so every future run benefits — not "add a check for the thing
+  // that just failed," which is simply that finding's fix restated. The
+  // failure mode this guards against isn't a missed bug — it's the model
+  // reasoning "the agent complied and the result was fine, so there's
+  // nothing left to say" and skipping this lens's investigation entirely.
+
+  lines.push(`## Enhancement Opportunities (a third, independent lens)\n`);
+  lines.push(`A compliant execution with an adequate result is not evidence that the definition is optimal — do not let that conclude the analysis. Apply this lens to every agent regardless of what the two lenses above found, and treat the current definition as something that can itself be improved.\n`);
+  lines.push(`For an agent that complied and produced an adequate result, still ask: what did this session actually show the agent encounter — context, related information, a decision point — that the current instructions never asked it to use, check, or account for? Did the agent investigate as broadly as its assigned responsibility called for, or only as narrowly as the instructions happened to specify? Look beyond what the agent was explicitly asked to do: if the session exposed useful information, an available relationship, a tool, a validation opportunity, or a decision point that the current definition never told the agent to use, that latent capability is itself the opportunity, whether or not this run's result already looked fine.\n`);
+  lines.push(`A generalizable improvement is not required to be a small addition — some of what this evidence points to may call for restructuring how the agent approaches its task, not just inserting a sentence. Judge the size of the fix by what the evidence supports, not by a preference for minimal changes.\n`);
+  lines.push(`Before writing one, check whether its evidence already produced a finding or outcome gap above for this same agent. If it did, this entry only earns its place if it goes beyond that incident's fix — a broader instruction that prevents a class of similar problems, not the same fix restated as "add an instruction to...". Reporting a finding for a wrong parameter name, then an enhancement opportunity that says "validate parameter names before calling," is the same fix twice — skip the second one.\n`);
+  lines.push(`Every opportunity must be grounded in this session's own evidence: name the specific instruction the definition currently gives, cite the specific evidence in this session showing what that instruction leaves out or falls short on, and state the specific, generalizable addition that evidence — not general best practice — justifies. Generalizable means it strengthens the agent's responsibility as a whole, not just the exact task or ticket from this session. "The definition could be more thorough" fails this because it names no instruction and cites no evidence.\n`);
+  lines.push(`What kind of gap the evidence points to is not fixed — it depends entirely on what this agent's definition and transcript actually contain. Do not search for a particular kind of gap; read the definition and the transcript, and let whatever gap is actually there emerge from that reading. Only after that reading genuinely turns up nothing — not because the agent complied — say so and report none.\n`);
 
   // ── AgentWatch supplementary data ────────────────────────────────────
   // Not in session JSONLs — use as clues, not primary evidence. Surfaced
@@ -1141,12 +1176,12 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
 
   if (priorExecutionAnalyses && priorExecutionAnalyses.length > 0) {
     lines.push(`**Prior AI analyses of this session (${priorExecutionAnalyses.length}):**`);
-    lines.push(`Check whether this session's own evidence still shows the problem behind each recommendation below. If it does, the recommendation was never acted on or didn't hold — say so rather than re-deriving it as if it were new. Restate a prior recommendation only when this pass shows something new about whether it still applies.`);
+    lines.push(`Check whether this session's own evidence still shows the problem behind each finding below. If it does, the finding was never acted on or didn't hold — say so rather than re-deriving it as if it were new. Restate a prior finding only when this pass shows something new about whether it still applies.`);
     for (const cycle of priorExecutionAnalyses) {
-      const recs = cycle.recommendations;
+      const recs = cycle.executionFindings;
       const recSummary = recs && recs.length > 0
         ? recs.map(r => `[${r.severity}] ${r.title}`).join('; ')
-        : 'no recommendations';
+        : 'no findings';
       lines.push(`- Cycle #${cycle.cycleNumber} (${cycle.status}, ${formatDate(cycle.createdAt)}): ${recSummary}`);
     }
     lines.push('');
@@ -1397,15 +1432,16 @@ export function generateExecutionAnalysisPrompt(data: AnalysisPromptData): strin
   lines.push(`## Output\n`);
   lines.push(`Language: write every finding, and every field value in the JSON below, in plain, everyday language that anyone reading this report can follow — regardless of their technical background or how familiar they are with this session's specific agents or tools. Labels like "root cause", "observation", and "evidence" describe how you organize your reasoning — they are not words to drop into the text as if they explain themselves. Describe what actually happened in plain, specific terms rather than naming the abstract category it falls into. Simplifying the language must not mean dropping specifics — keep every timestamp, tool call, count, and concrete detail the finding already requires; say the same true, specific thing in plain words, not a vaguer version of it.\n`);
   lines.push(`Write one short observation per finding — specific enough that the user can immediately decide whether to add it as feedback. Group by agent. Each observation should name the instruction that was not followed, describe what actually happened, and state whether it mattered.\n`);
-  lines.push(`Prefer the smallest number of high-confidence findings that materially matter. Do not report multiple recommendations for the same underlying root cause unless they require materially different fixes — when several observations are manifestations of the same definition-level problem, consolidate them into one recommendation and cite the strongest evidence.\n`);
+  lines.push(`Prefer the smallest number of high-confidence findings that materially matter. Do not report multiple findings for the same underlying root cause unless they require materially different fixes — when several observations are manifestations of the same definition-level problem, consolidate them into one finding and cite the strongest evidence.\n`);
   lines.push(`If no meaningful deviations were found, say so directly.\n`);
   lines.push(`Do not make any changes to files. This is a read-only analysis report — findings and recommendations are for the user to review and act on, not for you to apply.\n`);
-  lines.push(`Classify each recommendation as either agent-scoped or cross-agent/session-wide:\n`);
-  lines.push(`- If the finding is attributable to one specific agent, set \`agentId\` — \`feedbackText\` and \`feedbackCategory\` are then required. \`feedbackText\` must be a concise, ready-to-paste reviewer note describing the concrete behavior that should change, in the way a reviewer would phrase it by hand — do not simply concatenate \`observation\` and \`rootCause\`. Set \`feedbackCategory\` to the single closest match from: missing_context, incorrect_assumption, hallucinated_conclusion, weak_validation, missing_edge_case, missing_artifact, missing_code_exploration, missing_test_coverage, workflow_improvement, agent_definition_gap, skill_definition_gap, tool_misuse, inefficient_execution, prompt_ambiguity, other.\n`);
-  lines.push(`- If the finding cannot reasonably be attributed to one agent, omit \`agentId\`, \`feedbackText\`, and \`feedbackCategory\` entirely. Do not force a cross-agent or architecture-wide finding into a single agent's feedback log.\n`);
+  lines.push(`Every entry across \`executionFindings\`, \`outcomeFindings\`, and \`enhancementOpportunities\` needs the same agent-attribution judgment: does it trace to one specific agent's run, or does it span multiple agents / the orchestration as a whole? This is about attribution, not where the eventual fix lives — an item whose fix touches a shared skill or agent definition file is still agent-scoped if the observation describes one named agent's run. On \`executionFindings\`, the \`category\` field (prompt/agent_type/workflow/permissions/cost/skill_design) says what kind of fix is needed and is independent of this — \`category: "skill_design"\` does NOT by itself mean omit \`agentId\`.\n`);
+  lines.push(`- Test: does the observation name one specific agent (by its role in the tree above, e.g. "the gtc-zephyr-creation agent" or "the Orchestrator") whose actual behavior during this run is what's being described? If yes, set \`agentId\` even if the fix is to edit a definition file other runs also use.\n`);
+  lines.push(`- When agent-scoped, set \`agentId\` to the exact \`id: ...\` value printed for that agent in the tree above — copy it character-for-character, in full; never shorten, abbreviate, paraphrase, or invent it. If you're not certain of the exact id, omit \`agentId\` rather than guess, since a wrong id is worse than none. An \`agentId\` requires \`feedbackText\` and \`feedbackCategory\` too — \`feedbackText\` is a concise, ready-to-paste reviewer note in the way a reviewer would phrase it by hand, not a concatenation of the other fields, and \`feedbackCategory\` is the single closest match from: missing_context, incorrect_assumption, hallucinated_conclusion, weak_validation, missing_edge_case, missing_artifact, missing_code_exploration, missing_test_coverage, workflow_improvement, agent_definition_gap, skill_definition_gap, tool_misuse, inefficient_execution, prompt_ambiguity, other.\n`);
+  lines.push(`- Only omit \`agentId\` (and \`feedbackText\`/\`feedbackCategory\`) when the item genuinely has no single agent to point to — it spans multiple agents' interactions or describes the architecture as a whole. Do not omit them merely because the fix touches a definition file.\n`);
   lines.push(`End with:\n`);
   lines.push('```json');
-  lines.push(`{"recommendations": [{"severity": "high|medium|low", "title": "...", "category": "prompt|agent_type|workflow|permissions|cost|skill_design", "agentId": "set only if attributable to one agent", "observation": "...", "rootCause": "...", "evidence": ["..."], "confidence": "high|medium|low", "recommendation": "...", "feedbackText": "required if agentId is set, otherwise omit", "feedbackCategory": "required if agentId is set, otherwise omit — one of the categories listed above"}]}`);
+  lines.push(`{"executionFindings": [{"severity": "high|medium|low", "title": "...", "category": "prompt|agent_type|workflow|permissions|cost|skill_design", "agentId": "set only if attributable to one agent", "observation": "...", "rootCause": "...", "evidence": ["..."], "confidence": "high|medium|low", "recommendation": "...", "feedbackText": "required if agentId is set, otherwise omit", "feedbackCategory": "required if agentId is set, otherwise omit — one of the categories listed above"}], "outcomeFindings": [{"agentId": "set only if attributable to one agent", "title": "...", "whatWasExpected": "what the task needed to accomplish, grounded in evidence the agent itself had", "whatWasProduced": "the deliverable's own content — quote or closely describe the actual artifact/message/record, not the tool calls that created it", "gap": "the specific, evidenced shortfall between the two", "evidence": ["..."], "confidence": "high|medium|low", "feedbackText": "required if agentId is set, otherwise omit", "feedbackCategory": "required if agentId is set, otherwise omit — one of the categories listed above"}], "enhancementOpportunities": [{"agentId": "set only if attributable to one agent", "title": "...", "currentInstruction": "the exact instruction, workflow step, or responsibility that's missing or insufficient — quote it verbatim when practical, otherwise closely paraphrase", "observation": "what this session's transcript shows that the current instruction misses, and how this differs from any finding/outcome gap already reported for this agent", "suggestedEnhancement": "the specific, generalizable addition or change to the definition", "expectedBenefit": "why this session's evidence suggests it would produce a better result", "evidence": ["..."], "confidence": "high|medium|low", "feedbackText": "required if agentId is set, otherwise omit", "feedbackCategory": "required if agentId is set, otherwise omit — one of the categories listed above"}]}`);
   lines.push(`\`evidence\` is a list of the specific, citable data points behind the finding — a definition instruction, a JSONL tool call or timestamp, a duration or count — not a single sentence restating the observation.`);
   lines.push('```');
 
@@ -1442,7 +1478,9 @@ export function updateExecutionAnalysisCycle(
   updates: {
     status?: string;
     analysisResponse?: string | null;
-    recommendations?: ExecutionRecommendation[] | null;
+    executionFindings?: ExecutionFinding[] | null;
+    outcomeFindings?: import('@/types/analytics').ExecutionOutcomeFinding[] | null;
+    enhancementOpportunities?: import('@/types/analytics').ExecutionEnhancementOpportunity[] | null;
     streamEntries?: StreamEntry[] | null;
     model?: string | null;
     cliSessionId?: string | null;
@@ -1465,9 +1503,17 @@ export function updateExecutionAnalysisCycle(
     sets.push('analysis_response = ?');
     values.push(updates.analysisResponse);
   }
-  if (updates.recommendations !== undefined) {
-    sets.push('recommendations = ?');
-    values.push(updates.recommendations ? JSON.stringify(updates.recommendations) : null);
+  if (updates.executionFindings !== undefined) {
+    sets.push('execution_findings = ?');
+    values.push(updates.executionFindings ? JSON.stringify(updates.executionFindings) : null);
+  }
+  if (updates.outcomeFindings !== undefined) {
+    sets.push('outcome_findings = ?');
+    values.push(updates.outcomeFindings ? JSON.stringify(updates.outcomeFindings) : null);
+  }
+  if (updates.enhancementOpportunities !== undefined) {
+    sets.push('enhancement_opportunities = ?');
+    values.push(updates.enhancementOpportunities ? JSON.stringify(updates.enhancementOpportunities) : null);
   }
   if (updates.streamEntries !== undefined) {
     sets.push('stream_entries = ?');
@@ -1499,7 +1545,9 @@ export function getExecutionAnalysisCycles(sessionId: string): import('@/types/a
     cycleNumber: row.cycle_number as number,
     analysisPrompt: row.analysis_prompt as string,
     analysisResponse: (row.analysis_response as string) || null,
-    recommendations: row.recommendations ? JSON.parse(row.recommendations as string) : null,
+    executionFindings: row.execution_findings ? JSON.parse(row.execution_findings as string) : null,
+    outcomeFindings: row.outcome_findings ? JSON.parse(row.outcome_findings as string) : null,
+    enhancementOpportunities: row.enhancement_opportunities ? JSON.parse(row.enhancement_opportunities as string) : null,
     status: row.status as 'pending' | 'analyzing' | 'completed' | 'failed' | 'cancelled',
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries as string) : null,
     model: (row.model as string) || null,
@@ -1573,25 +1621,25 @@ export async function runExecutionAnalysis(
       return;
     }
 
-    // Salvages a partial recommendations block if the model had already
+    // Salvages a partial executionFindings block if the model had already
     // written one before being cut off — a non-zero exit means the run
     // didn't finish cleanly, but any usable findings it did produce
     // shouldn't be thrown away.
     const salvaged = extractJsonFence(responseText);
-    const salvagedRecommendations = salvaged && Array.isArray(salvaged.recommendations)
-      ? salvaged.recommendations as ExecutionRecommendation[]
+    const salvagedFindings = salvaged && Array.isArray(salvaged.executionFindings)
+      ? salvaged.executionFindings as ExecutionFinding[]
       : null;
 
     if (exitCode !== 0) {
       const errorDetail = stderr.trim() || `Process exited with code ${exitCode}`;
       log.push({ kind: 'system', text: `Analysis process failed (exit code ${exitCode}): ${errorDetail.slice(0, 500)}` });
-      if (salvagedRecommendations) {
-        log.push({ kind: 'system', text: `Salvaged ${salvagedRecommendations.length} recommendation(s) from the partial response before the failure.` });
+      if (salvagedFindings) {
+        log.push({ kind: 'system', text: `Salvaged ${salvagedFindings.length} finding(s) from the partial response before the failure.` });
       }
       updateExecutionAnalysisCycle(cycleId, {
         status: 'failed',
         analysisResponse: responseText || null,
-        recommendations: salvagedRecommendations,
+        executionFindings: salvagedFindings,
         streamEntries: log.entries.length > 0 ? log.entries : null,
       }, sourceId);
       broadcast('execution_analysis_failed', { error: errorDetail.slice(0, 300) });
@@ -1611,18 +1659,68 @@ export async function runExecutionAnalysis(
       return;
     }
 
-    let recommendations: ExecutionRecommendation[] | null = null;
+    let executionFindings: ExecutionFinding[] | null = null;
     const parsed = extractJsonFence(fullResponse);
-    if (parsed && Array.isArray(parsed.recommendations)) {
-      recommendations = parsed.recommendations as ExecutionRecommendation[];
+    if (parsed && Array.isArray(parsed.executionFindings)) {
+      executionFindings = parsed.executionFindings as ExecutionFinding[];
+    }
+    let outcomeFindings: import('@/types/analytics').ExecutionOutcomeFinding[] | null = null;
+    if (parsed && Array.isArray(parsed.outcomeFindings)) {
+      outcomeFindings = parsed.outcomeFindings as import('@/types/analytics').ExecutionOutcomeFinding[];
+    }
+    let enhancementOpportunities: import('@/types/analytics').ExecutionEnhancementOpportunity[] | null = null;
+    if (parsed && Array.isArray(parsed.enhancementOpportunities)) {
+      enhancementOpportunities = parsed.enhancementOpportunities as import('@/types/analytics').ExecutionEnhancementOpportunity[];
     }
 
-    log.push({ kind: 'system', text: `Analysis completed. ${recommendations?.length ?? 0} recommendations generated.` });
+    // The model is asked to copy an agent id verbatim from the prompt, but
+    // free-form generation can still shorten or invent one. An id that
+    // matches no real agent can never be resolved back to a name in the UI,
+    // so strip the attribution rather than carry a dead id forward — the
+    // finding still shows, just without the (broken) add-as-feedback action.
+    if (executionFindings || outcomeFindings || enhancementOpportunities) {
+      const realAgentIds = new Set(
+        (getDatabase(sourceId).prepare('SELECT id FROM agents WHERE session_id = ?').all(sessionId) as { id: string }[])
+          .map(r => r.id)
+      );
+      let droppedCount = 0;
+      for (const rec of executionFindings ?? []) {
+        if (rec.agentId && !realAgentIds.has(rec.agentId)) {
+          droppedCount++;
+          delete rec.agentId;
+          delete rec.feedbackText;
+          delete rec.feedbackCategory;
+        }
+      }
+      for (const finding of outcomeFindings ?? []) {
+        if (finding.agentId && !realAgentIds.has(finding.agentId)) {
+          droppedCount++;
+          delete finding.agentId;
+          delete finding.feedbackText;
+          delete finding.feedbackCategory;
+        }
+      }
+      for (const opp of enhancementOpportunities ?? []) {
+        if (opp.agentId && !realAgentIds.has(opp.agentId)) {
+          droppedCount++;
+          delete opp.agentId;
+          delete opp.feedbackText;
+          delete opp.feedbackCategory;
+        }
+      }
+      if (droppedCount > 0) {
+        log.push({ kind: 'system', text: `Dropped agent attribution on ${droppedCount} item(s) — the model's agentId didn't match any agent in this session.` });
+      }
+    }
+
+    log.push({ kind: 'system', text: `Analysis completed. ${executionFindings?.length ?? 0} execution findings, ${outcomeFindings?.length ?? 0} outcome findings, ${enhancementOpportunities?.length ?? 0} enhancement opportunities generated.` });
 
     updateExecutionAnalysisCycle(cycleId, {
       status: 'completed',
       analysisResponse: fullResponse,
-      recommendations,
+      executionFindings,
+      outcomeFindings,
+      enhancementOpportunities,
       streamEntries: log.entries.length > 0 ? log.entries : null,
     }, sourceId);
 

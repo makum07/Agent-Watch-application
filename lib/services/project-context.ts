@@ -37,6 +37,19 @@ export function getProjectContextFile(fileId: string, sourceId?: string): Projec
   return row ? mapProjectContextFileRow(row) : null;
 }
 
+// For image context files, "viewing" the file means previewing the raw
+// bytes, not the extracted-text placeholder (see extractContextFileText).
+export function getProjectContextFileRawBuffer(fileId: string, sourceId?: string): Buffer | null {
+  const db = getDatabase(sourceId);
+  const row = db.prepare('SELECT raw_path FROM project_context_files WHERE id = ?').get(fileId) as { raw_path: string } | undefined;
+  if (!row) return null;
+  try {
+    return fs.readFileSync(row.raw_path);
+  } catch {
+    return null;
+  }
+}
+
 export function createProjectContextFile(
   project: string,
   filename: string,

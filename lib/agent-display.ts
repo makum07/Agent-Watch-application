@@ -1,5 +1,21 @@
 import type { Agent } from '@/types/session';
 
+// AI-generated recommendations echo an agent id back from the analysis
+// prompt, but the model doesn't always copy the full hex string verbatim —
+// it can truncate or paraphrase it. Fall back to a prefix match against the
+// real ids before giving up, so a mangled id still resolves to the right
+// agent instead of rendering as a raw hex fragment.
+export function resolveAgentById(agentMap: Map<string, Agent>, id: string | null | undefined): Agent | undefined {
+  if (!id) return undefined;
+  const exact = agentMap.get(id);
+  if (exact) return exact;
+  if (id.length < 6) return undefined;
+  for (const agent of agentMap.values()) {
+    if (agent.id.startsWith(id)) return agent;
+  }
+  return undefined;
+}
+
 // Named agent types with fixed colors
 const NAMED_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   Orchestrator: { bg: 'var(--aw-phase-blue)',       text: 'var(--aw-blue)',              border: 'var(--aw-blue-bg)' },

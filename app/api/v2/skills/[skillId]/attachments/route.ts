@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { getSkillDetail, createContextFile } from '@/lib/services/skill-registry';
-import { extractContextFileText, FileExtractionError, MAX_CONTEXT_FILE_SIZE } from '@/lib/services/file-extraction';
+import { extractContextFileText, isImageMimeType, FileExtractionError, MAX_CONTEXT_FILE_SIZE } from '@/lib/services/file-extraction';
 import { resolveSourceFromRequest } from '@/lib/api/resolve-source';
 
 export const dynamic = 'force-dynamic';
@@ -53,11 +53,19 @@ export async function POST(
     const rawPath = path.join(attachmentsDir, `${id}-${filename}`);
     fs.writeFileSync(rawPath, buffer);
 
-    // Written unconditionally (not just for large files) so the spawned
-    // analysis agent always has a plain-text file it can Read — generateAnalysisPrompt
-    // decides per-run whether to inline the text or point at this path instead.
-    const textPath = path.join(attachmentsDir, `${id}.extracted.md`);
-    fs.writeFileSync(textPath, extracted.text, 'utf8');
+    // For images there's no extracted text worth sidecaring — the raw file
+    // itself is what the spawned analysis agent should view (it can read
+    // images directly), so `textPath` points straight at `rawPath`. For
+    // everything else, a plain-text file is written unconditionally (not
+    // just for large files) so the agent always has something to Read —
+    // generateAnalysisPrompt decides per-run whether to inline the text or
+    // point at this path instead.
+    const textPath = isImageMimeType(extracted.mimeType)
+      ? rawPath
+      : path.join(attachmentsDir, `${id}.extracted.md`);
+    if (textPath !== rawPath) {
+      fs.writeFileSync(textPath, extracted.text, 'utf8');
+    }
 
     const record = createContextFile(skillId, filename, extracted.mimeType, buffer.length, rawPath, textPath, extracted.text, sourceId);
     const { extractedText, ...summary } = record;

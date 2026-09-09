@@ -898,6 +898,19 @@ export function getContextFile(fileId: string, sourceId?: string): SkillContextF
   return row ? mapContextFileRow(row) : null;
 }
 
+// For image context files, "viewing" the file means previewing the raw
+// bytes, not the extracted-text placeholder (see extractContextFileText).
+export function getContextFileRawBuffer(fileId: string, sourceId?: string): Buffer | null {
+  const db = getDatabase(sourceId);
+  const row = db.prepare('SELECT raw_path FROM skill_context_files WHERE id = ?').get(fileId) as { raw_path: string } | undefined;
+  if (!row) return null;
+  try {
+    return fs.readFileSync(row.raw_path);
+  } catch {
+    return null;
+  }
+}
+
 export function createContextFile(
   skillId: string,
   filename: string,

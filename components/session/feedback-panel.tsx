@@ -11,7 +11,7 @@ import { useSessionStore } from '@/store/session-store';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { FEEDBACK_CATEGORIES, type FeedbackCategory, type FileChange, type StreamEntry } from '@/types/feedback';
 import type { SessionEvent, ClientMessage } from '@/types/events';
-import { getAgentDisplay } from '@/lib/agent-display';
+import { getAgentDisplay, resolveAgentById } from '@/lib/agent-display';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
 import {
   CollapsibleStreamLog,
@@ -383,7 +383,7 @@ export function FeedbackPanel({ sessionId, onClose }: FeedbackPanelProps) {
               <div className="space-y-2">
                 <div className="text-[11px] font-medium text-[var(--aw-text-2)] uppercase tracking-wide">By Agent</div>
                 {Array.from(byAgent.entries()).map(([agentId, agentItems]) => {
-                  const agent = agentMap.get(agentId);
+                  const agent = resolveAgentById(agentMap, agentId);
                   const { name } = agent ? getAgentDisplay(agent) : { name: agentItems[0]?.agentName || agentId.slice(0, 8) };
                   const isOpen = !collapsed.has(agentId);
                   return (

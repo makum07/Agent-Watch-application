@@ -511,6 +511,18 @@ function runMigrations(db: Database.Database) {
   if (eacCols.length > 0 && !eacCols.find(c => c.name === 'cli_session_id')) {
     db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN cli_session_id TEXT;`);
   }
+  if (eacCols.length > 0 && !eacCols.find(c => c.name === 'enhancement_opportunities')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN enhancement_opportunities TEXT;`);
+  }
+  if (eacCols.length > 0 && !eacCols.find(c => c.name === 'outcome_findings')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles ADD COLUMN outcome_findings TEXT;`);
+  }
+  // Fixup: `recommendations` was renamed to `execution_findings` once the
+  // three-lens model (execution findings / outcome findings / enhancement
+  // opportunities) landed — the old name described only one of the three.
+  if (eacCols.length > 0 && eacCols.find(c => c.name === 'recommendations') && !eacCols.find(c => c.name === 'execution_findings')) {
+    db.exec(`ALTER TABLE execution_analysis_cycles RENAME COLUMN recommendations TO execution_findings;`);
+  }
 
   // Fixup: ensure skill_context_files exists. On DBs where the maturity-model
   // merge's version renumbering (see v16 comment above) landed after v14 had

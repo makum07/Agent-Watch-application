@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { FileText, Upload, Trash2, Loader2, AlertTriangle, X } from 'lucide-react';
-import { useSkillStore } from '@/store/skill-store';
+import { useSkillStore, type ViewedContextFile } from '@/store/skill-store';
 import { formatBytes, formatRelativeTime } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MarkdownRenderer } from '@/components/shared/markdown-renderer';
@@ -15,7 +15,7 @@ export function ContextDocuments({ skillId }: ContextDocumentsProps) {
   const { selectedSkill, uploadContextFile, deleteContextFile, viewContextFile, isUploadingContext, lastError, clearError } = useSkillStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ filename: string; extractedText: string } | 'loading' | null>(null);
+  const [viewing, setViewing] = useState<ViewedContextFile | 'loading' | null>(null);
 
   const files = selectedSkill?.contextFiles ?? [];
 
@@ -53,11 +53,11 @@ export function ContextDocuments({ skillId }: ContextDocumentsProps) {
           {isUploadingContext ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           {isUploadingContext ? 'Uploading...' : 'Upload'}
         </button>
-        <input ref={inputRef} type="file" accept=".xlsx,.pptx,.md,.txt" className="hidden" onChange={handleFileChange} />
+        <input ref={inputRef} type="file" accept=".xlsx,.pptx,.md,.txt,.jpg,.jpeg,.png" className="hidden" onChange={handleFileChange} />
       </div>
 
       <p className="text-[11px] text-[var(--aw-text-4)] mb-3">
-        Attach .xlsx, .pptx, .md, or .txt files specific to this skill only — for context shared across every skill in the project, use Project Documents above.
+        Attach .xlsx, .pptx, .md, .txt, .jpg, .jpeg, or .png files specific to this skill only — for context shared across every skill in the project, use Project Documents above.
       </p>
 
       {lastError && (
@@ -114,6 +114,9 @@ export function ContextDocuments({ skillId }: ContextDocumentsProps) {
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-[var(--aw-text-2)]" />
               </div>
+            ) : viewing && 'dataUrl' in viewing ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={viewing.dataUrl} alt={viewing.filename} className="max-w-full mx-auto" />
             ) : viewing ? (
               <MarkdownRenderer content={viewing.extractedText} size="sm" />
             ) : null}

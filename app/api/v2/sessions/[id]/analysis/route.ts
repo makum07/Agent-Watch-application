@@ -25,7 +25,9 @@ interface DbCycle {
   cycle_number: number;
   analysis_prompt: string;
   analysis_response: string | null;
-  recommendations: string | null;
+  execution_findings: string | null;
+  outcome_findings: string | null;
+  enhancement_opportunities: string | null;
   status: string;
   stream_entries: string | null;
   model: string | null;
@@ -41,7 +43,9 @@ function mapCycle(row: DbCycle): ExecutionAnalysisCycle {
     cycleNumber: row.cycle_number,
     analysisPrompt: row.analysis_prompt,
     analysisResponse: row.analysis_response,
-    recommendations: row.recommendations ? JSON.parse(row.recommendations) : null,
+    executionFindings: row.execution_findings ? JSON.parse(row.execution_findings) : null,
+    outcomeFindings: row.outcome_findings ? JSON.parse(row.outcome_findings) : null,
+    enhancementOpportunities: row.enhancement_opportunities ? JSON.parse(row.enhancement_opportunities) : null,
     status: row.status as ExecutionAnalysisCycle['status'],
     streamEntries: row.stream_entries ? JSON.parse(row.stream_entries) : null,
     model: row.model || null,
@@ -289,14 +293,14 @@ function buildPromptData(sessionId: string, session: import('@/types/session').S
   // prompt trace whether a previous recommendation held instead of
   // re-deriving it blind on every re-run.
   const priorCycleRows = db.prepare(
-    'SELECT cycle_number, status, recommendations, created_at FROM execution_analysis_cycles WHERE session_id = ? ORDER BY cycle_number ASC'
-  ).all(sessionId) as Array<{ cycle_number: number; status: string; recommendations: string | null; created_at: number }>;
+    'SELECT cycle_number, status, execution_findings, created_at FROM execution_analysis_cycles WHERE session_id = ? ORDER BY cycle_number ASC'
+  ).all(sessionId) as Array<{ cycle_number: number; status: string; execution_findings: string | null; created_at: number }>;
   const priorExecutionAnalyses = priorCycleRows.length > 0
     ? priorCycleRows.map(c => ({
         cycleNumber: c.cycle_number,
         createdAt: new Date(c.created_at).toISOString(),
         status: c.status,
-        recommendations: c.recommendations ? JSON.parse(c.recommendations) : null,
+        executionFindings: c.execution_findings ? JSON.parse(c.execution_findings) : null,
       }))
     : undefined;
 
