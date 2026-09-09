@@ -6,6 +6,8 @@
 
 A self-hosted web application for visualizing and debugging Claude Code multi-agent sessions.
 
+### 🎥 [Watch the demo](https://egonline-my.sharepoint.com/personal/makum_eg_dk/_layouts/15/stream.aspx?id=%2Fpersonal%2Fmakum%5Feg%5Fdk%2FDocuments%2FMicrosoft%20Teams%20Chat%20Files%2FAgentWatch%20Use%20Case%20Demo%2Emp4&referrer=StreamWebApp%2EWeb&referrerScenario=AddressBarCopied%2Eview%2E026f8743%2D314c%2D4ecd%2D8ca9%2D3a3f8a3445ea&ct=1788951954092&or=Teams%2DHL&ga=1&LOF=1)
+
 ---
 
 ## Why AgentWatch
